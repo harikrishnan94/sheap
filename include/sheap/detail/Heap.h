@@ -166,11 +166,14 @@ public:
     m_ups[bin_id].deferred_free(static_cast<object *>(obj));
   }
 
-  void collect_garbage() noexcept {
+  void collect_garbage(bool flush_cache) noexcept {
     for (auto &ps : m_ups) {
       auto pages = ps.get_purgable_pages(m_cxt);
       purge_pages(pages);
     }
+
+    if (flush_cache)
+      clear_cache();
   }
 
 private:
@@ -231,6 +234,21 @@ private:
       pages.pop_front();
       m_free_page_cache.push_front(page);
     }
+    m_page_alloc.free(pages);
+  }
+
+  void clear_cache() {
+    FreePageList pages;
+    std::lock_guard lock{m_cache_mtx};
+
+    while (!m_free_page_cache.empty()) {
+      auto &page = m_free_page_cache.front();
+      BOOST_ASSERT(page.is_empty());
+      BOOST_ASSERT(!page.is_in_heap());
+      m_free_page_cache.pop_front();
+      pages.push_front(page);
+    }
+
     m_page_alloc.free(pages);
   }
 

@@ -108,16 +108,17 @@ void Sheap::free(void *ptr) noexcept {
   heap->deferred_free(binid, ptr);
 }
 
-void Sheap::collect_garbage() noexcept {
-  auto tid = tid_hash();
-  auto &heap = m_imp->m_heaps[tid & (m_imp->m_num_heaps - 1)];
-  heap.collect_garbage();
-}
-
-void Sheap::collect_all_garbage() noexcept {
-  for (auto *heap = m_imp->m_heaps, *end = heap + m_imp->m_num_heaps;
-       heap != end; heap++) {
-    heap->collect_garbage();
+void Sheap::collect_garbage(int opts) noexcept {
+  auto flush_cache = (opts & sheap::flush_cache<true>::value) != 0;
+  if (opts & collect_all<true>::value) {
+    for (auto *heap = m_imp->m_heaps, *end = heap + m_imp->m_num_heaps;
+         heap != end; heap++) {
+      heap->collect_garbage(flush_cache);
+    }
+  } else {
+    auto tid = tid_hash();
+    auto &heap = m_imp->m_heaps[tid & (m_imp->m_num_heaps - 1)];
+    heap.collect_garbage(flush_cache);
   }
 }
 

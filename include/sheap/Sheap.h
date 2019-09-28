@@ -16,6 +16,14 @@ struct config {
       : max_threads(max_threads), page_size(page_size), num_heaps(num_heaps) {}
 };
 
+template <bool Value> struct flush_cache {
+  static constexpr auto value = Value ? 0x1 : 0;
+};
+
+template <bool Value> struct collect_all {
+  static constexpr auto value = Value ? 0x2 : 0;
+};
+
 class Sheap {
 public:
   explicit Sheap(void *mem, std::size_t size, const config &c);
@@ -23,8 +31,18 @@ public:
   void *alloc(std::size_t size) noexcept;
   void *alloc(int tid, std::size_t size) noexcept;
   void free(void *ptr) noexcept;
-  void collect_garbage() noexcept;
-  void collect_all_garbage() noexcept;
+
+  template <typename... Options> void collect_garbage() noexcept {
+    int opts = 0;
+
+    if constexpr (sizeof...(Options) > 0)
+      opts |= (... | Options::value);
+
+    collect_garbage(opts);
+  }
+  void collect_garbage_full() noexcept {
+    collect_garbage<sheap::collect_all<true>, sheap::flush_cache<true>>();
+  }
 
   template <typename T, typename... Args> T *construct(Args... args) {
     static_assert(alignof(T) <= 16);
@@ -51,6 +69,7 @@ private:
   struct impl;
 
   static impl *create(void *mem, std::size_t size, const config &c);
+  void collect_garbage(int opts) noexcept;
 
   impl *m_imp;
 };
