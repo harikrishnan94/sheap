@@ -63,15 +63,16 @@ TEST_CASE("SheapBasic") {
     sheap.free(ptr);
   }
 
-  sheap.collect_garbage_full();
+  sheap.collect_garbage<sheap::flush_cache<true>>(0);
 
   std::thread{[&sheap]() {
     // Test deferred_free again
     for (auto i = 0; i < HUGE_ALLOC; i++) {
-      if (!sheap.construct<int>(1, 0x7F7F7F7F))
+      if (!sheap.construct<int>(1, INTVAL))
         break;
     }
   }}.join();
+  sheap.collect_garbage<sheap::flush_cache<true>>(1);
 }
 
 TEST_CASE("SheapRandom") {
@@ -132,13 +133,6 @@ TEST_CASE("SheapRandom") {
     }
   };
 
-  auto free = [&](auto ptrs) {
-    for (auto ptr : ptrs) {
-      sheap.free(ptr);
-    }
-    ptrs.clear();
-  };
-
   std::vector<std::thread> workers;
 
   for (auto i = 0; i < NUM_THREADS; i++) {
@@ -146,7 +140,7 @@ TEST_CASE("SheapRandom") {
         [&](auto tid) {
           std::unordered_set<void *> ptrs;
           test(tid, ptrs);
-          free(ptrs);
+          ptrs.clear();
           test(tid, ptrs);
         },
         i);

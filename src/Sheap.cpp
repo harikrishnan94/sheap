@@ -4,7 +4,6 @@
 
 #include <cstdio>
 #include <memory>
-#include <thread>
 #include <utility>
 
 namespace sheap {
@@ -79,10 +78,6 @@ Sheap::impl *Sheap::create(void *mem, std::size_t size, const config &c) {
                            max_threads);
 }
 
-static inline std::size_t tid_hash() {
-  return std::hash<std::thread::id>{}(std::this_thread::get_id());
-}
-
 void *Sheap::alloc(int tid, std::size_t size) noexcept {
   BOOST_ASSERT(size <= Bins.back());
 
@@ -95,10 +90,6 @@ void *Sheap::alloc(int tid, std::size_t size) noexcept {
       [&](auto &&_1) { return heap.push_full_pages(binid, _1); });
 }
 
-void *Sheap::alloc(std::size_t size) noexcept {
-  return alloc(static_cast<int>(tid_hash()), size);
-}
-
 void Sheap::free(void *ptr) noexcept {
   BOOST_ASSERT(ptr != nullptr);
   auto page = m_imp->m_cxt.get_page(ptr);
@@ -108,15 +99,13 @@ void Sheap::free(void *ptr) noexcept {
   heap->deferred_free(binid, ptr);
 }
 
-void Sheap::collect_garbage(int opts) noexcept {
-  auto flush_cache = (opts & sheap::flush_cache<true>::value) != 0;
-  if (opts & collect_all<true>::value) {
+void Sheap::collect_garbage(int tid, bool flush_cache) noexcept {
+  if (tid < 0) {
     for (auto *heap = m_imp->m_heaps, *end = heap + m_imp->m_num_heaps;
          heap != end; heap++) {
       heap->collect_garbage(flush_cache);
     }
   } else {
-    auto tid = tid_hash();
     auto &heap = m_imp->m_heaps[tid & (m_imp->m_num_heaps - 1)];
     heap.collect_garbage(flush_cache);
   }

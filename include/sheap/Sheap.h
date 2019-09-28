@@ -20,37 +20,19 @@ template <bool Value> struct flush_cache {
   static constexpr auto value = Value ? 0x1 : 0;
 };
 
-template <bool Value> struct collect_all {
-  static constexpr auto value = Value ? 0x2 : 0;
-};
-
 class Sheap {
 public:
   explicit Sheap(void *mem, std::size_t size, const config &c);
 
-  void *alloc(std::size_t size) noexcept;
   void *alloc(int tid, std::size_t size) noexcept;
   void free(void *ptr) noexcept;
 
-  template <typename... Options> void collect_garbage() noexcept {
-    int opts = 0;
-
-    if constexpr (sizeof...(Options) > 0)
-      opts |= (... | Options::value);
-
-    collect_garbage(opts);
+  template <typename FlushCache = flush_cache<false>>
+  void collect_garbage(int tid = -1) noexcept {
+    collect_garbage(tid, FlushCache::value);
   }
-  void collect_garbage_full() noexcept {
-    collect_garbage<sheap::collect_all<true>, sheap::flush_cache<true>>();
-  }
+  void collect_garbage_full() noexcept { collect_garbage(-1, true); }
 
-  template <typename T, typename... Args> T *construct(Args... args) {
-    static_assert(alignof(T) <= 16);
-    if (auto mem = alloc(sizeof(T)))
-      return new (mem) T{std::forward<Args>(args)...};
-    else
-      return nullptr;
-  }
   template <typename T, typename... Args> T *construct(int tid, Args... args) {
     static_assert(alignof(T) <= 16);
     if (auto mem = alloc(tid, sizeof(T)))
@@ -69,7 +51,7 @@ private:
   struct impl;
 
   static impl *create(void *mem, std::size_t size, const config &c);
-  void collect_garbage(int opts) noexcept;
+  void collect_garbage(int tid, bool flush_cache) noexcept;
 
   impl *m_imp;
 };
