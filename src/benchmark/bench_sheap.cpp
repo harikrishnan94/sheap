@@ -9,7 +9,7 @@
 
 class MallocAllocator {
 public:
-  void *alloc(std::size_t size) { return std::malloc(size); }
+  void *alloc(int, std::size_t size) { return std::malloc(size); }
   void free(void *ptr) { std::free(ptr); }
 };
 
@@ -20,12 +20,13 @@ public:
 
   ~SheapAllocator() { std::free(mem); }
 
-  void *alloc(std::size_t size) { return sheap.alloc(0, size); }
+  void *alloc(int tid, std::size_t size) { return sheap.alloc(tid, size); }
   void free(void *ptr) { sheap.free(ptr); }
 
 private:
   static constexpr auto MAX_MEMORY = 40'000'000;
-  static constexpr auto config = sheap::config{1, 64 * 1024, 1};
+  static inline auto config = sheap::config{
+      static_cast<int>(std::thread::hardware_concurrency()), 8 * 1024, 1};
 
   void *mem;
   sheap::Sheap sheap;
@@ -59,10 +60,11 @@ static void BM_AllocFree(benchmark::State &s, Allocator &&a) {
     to_free.clear();
   };
 
+  auto tid = s.thread_index;
   while (s.KeepRunningBatch(BATCH_SIZE)) {
     prep_batch();
     for (auto i = 0; i < BATCH_SIZE; i++) {
-      auto ptr = a.alloc(sizes[i]);
+      auto ptr = a.alloc(tid, sizes[i]);
 
       if (ptr == nullptr) {
         s.SkipWithError("OOM");
