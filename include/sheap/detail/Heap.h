@@ -33,7 +33,7 @@ public:
 
   void deferred_free(object *obj) noexcept {
     while (true) {
-      auto old = m_deferred_free.load();
+      auto old = m_deferred_free.load(std::memory_order_acquire);
       obj->set_next(old);
 
       if (m_deferred_free.compare_exchange_strong(old, obj))
@@ -44,14 +44,15 @@ public:
   FreePageList get_purgable_pages(Context &cxt) {
     std::lock_guard lock{m_mtx};
     auto *deferred = get_deferred();
-    auto [purgable_pages, deferred_again] = apply_deferred_free(deferred, cxt);
+    auto [purgable_pages, def_agn] = apply_deferred_free(deferred, cxt);
 
-    if (deferred_again) {
+    if (def_agn.head) {
+      BOOST_ASSERT(def_agn.tail != nullptr);
       while (true) {
         auto old = m_deferred_free.load(std::memory_order_acquire);
-        deferred_again->set_next(old);
+        def_agn.tail->set_next(old);
 
-        if (m_deferred_free.compare_exchange_strong(deferred, deferred_again))
+        if (m_deferred_free.compare_exchange_strong(old, def_agn.head))
           break;
       }
     }
@@ -60,6 +61,18 @@ public:
   }
 
 private:
+  struct deferred_again {
+    object *head = nullptr;
+    object *tail = nullptr;
+
+    void push_back(object *obj) {
+      if (tail == nullptr)
+        tail = obj;
+      obj->set_next(head);
+      head = obj;
+    }
+  };
+
   FreePageList get_partial_pages() {
     std::size_t num_objs = 0;
     FreePageList pages;
@@ -83,17 +96,17 @@ private:
       auto *freed = m_deferred_free.load(std::memory_order_acquire);
 
       if (freed == nullptr)
-        return freed;
+        return nullptr;
 
       if (m_deferred_free.compare_exchange_strong(freed, nullptr))
         return freed;
     }
   }
 
-  std::pair<FreePageList, object *> apply_deferred_free(object *deferred,
-                                                        Context &cxt) {
+  auto apply_deferred_free(object *deferred, Context &cxt)
+      -> std::pair<FreePageList, deferred_again> {
     FreePageList purgable_pages;
-    object *deferred_again = nullptr;
+    deferred_again def_agn;
 
     for (auto obj = deferred; obj;) {
       auto next = obj->get_next();
@@ -108,16 +121,13 @@ private:
           asan_poison_memory_region(&page, sizeof(page));
         }
       } else {
-        obj->set_next(deferred_again);
-        deferred_again = obj;
+        def_agn.push_back(obj);
       }
 
       obj = next;
     }
 
-    std::atomic_thread_fence(std::memory_order_release);
-
-    return {std::move(purgable_pages), deferred_again};
+    return {std::move(purgable_pages), def_agn};
   }
 
   bool free(object *obj, Context &cxt) {

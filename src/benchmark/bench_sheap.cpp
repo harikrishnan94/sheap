@@ -23,10 +23,15 @@ public:
   void *alloc(int tid, std::size_t size) { return sheap.alloc(tid, size); }
   void free(void *ptr) { sheap.free(ptr); }
 
+  static SheapAllocator &instance() {
+    static auto Instance = std::make_unique<SheapAllocator>();
+    return *Instance;
+  }
+
 private:
-  static constexpr auto MAX_MEMORY = 40'000'000;
+  static constexpr auto MAX_MEMORY = 300'000'000;
   static inline auto config = sheap::config{
-      static_cast<int>(std::thread::hardware_concurrency()), 8 * 1024, 1};
+      static_cast<int>(std::thread::hardware_concurrency()), 64 * 1024, 1};
 
   void *mem;
   sheap::Sheap sheap;
@@ -81,7 +86,7 @@ static void BM_AllocFree(benchmark::State &s, Allocator &&a) {
   free_all();
 }
 
-BENCHMARK_CAPTURE(BM_AllocFree, SheapAlloc, SheapAllocator{})
+BENCHMARK_CAPTURE(BM_AllocFree, SheapAlloc, SheapAllocator::instance())
     ->ThreadRange(1, std::thread::hardware_concurrency())
     ->UseRealTime()
     ->Arg(100)
