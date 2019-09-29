@@ -12,7 +12,8 @@ struct config {
       detail::next_pow_2(std::thread::hardware_concurrency() * 4);
 
   explicit config(int max_threads) : max_threads(max_threads) {}
-  config(int max_threads, std::size_t page_size, std::size_t num_heaps)
+  constexpr config(int max_threads, std::size_t page_size,
+                   std::size_t num_heaps)
       : max_threads(max_threads), page_size(page_size), num_heaps(num_heaps) {}
 };
 
