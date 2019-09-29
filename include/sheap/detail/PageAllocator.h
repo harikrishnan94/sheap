@@ -32,6 +32,9 @@ public:
     m_freelist.push_front(*page);
   }
   void free(FreePageList &fl) noexcept {
+    if (fl.empty())
+      return;
+
     std::lock_guard lock{m_mtx};
     m_freelist.incorporate_after(
         m_freelist.before_begin(), fl.front().free_list_hook::this_ptr(),
