@@ -38,6 +38,7 @@ public:
 
       if (m_deferred_free.compare_exchange_strong(old, obj))
         return;
+      BOOST_INTERPROCESS_SMT_PAUSE;
     }
   }
 
@@ -54,6 +55,7 @@ public:
 
         if (m_deferred_free.compare_exchange_strong(old, def_agn.head))
           break;
+        BOOST_INTERPROCESS_SMT_PAUSE;
       }
     }
 
@@ -100,6 +102,7 @@ private:
 
       if (m_deferred_free.compare_exchange_strong(freed, nullptr))
         return freed;
+      BOOST_INTERPROCESS_SMT_PAUSE;
     }
   }
 
