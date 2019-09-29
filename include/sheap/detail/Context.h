@@ -7,7 +7,31 @@
 #include <cstddef>
 
 namespace sheap::detail {
-struct object {
+class object {
+public:
+  static inline object *from(void *p) { return static_cast<object *>(p); }
+
+  inline void poison(std::size_t size) {
+    asan_poison_memory_region(this, size);
+  }
+
+  inline void unpoison() { asan_unpoison_memory_region(this, sizeof(*this)); }
+  inline void poison() { asan_poison_memory_region(this, sizeof(*this)); }
+
+  inline void set_next(object *n) {
+    unpoison();
+    next.store(n, std::memory_order_relaxed);
+    poison();
+  }
+  inline object *get_next() {
+    unpoison();
+    auto n = next.load(std::memory_order_relaxed);
+    poison();
+
+    return n;
+  }
+
+private:
   std::atomic<object *> next;
 };
 
@@ -21,6 +45,8 @@ public:
         m_num_pages(num_pages)
 #endif
   {
+    asan_poison_memory_region(pages, sizeof(Page) * num_pages);
+    asan_poison_memory_region(base, page_size * num_pages);
   }
 
   void *get_page_ptr(const Page *page) const noexcept {

@@ -34,7 +34,7 @@ public:
   void deferred_free(object *obj) noexcept {
     while (true) {
       auto old = m_deferred_free.load();
-      obj->next.store(old, std::memory_order_relaxed);
+      obj->set_next(old);
 
       if (m_deferred_free.compare_exchange_strong(old, obj))
         return;
@@ -49,7 +49,7 @@ public:
     if (deferred_again) {
       while (true) {
         auto old = m_deferred_free.load(std::memory_order_acquire);
-        deferred_again->next.store(old, std::memory_order_release);
+        deferred_again->set_next(old);
 
         if (m_deferred_free.compare_exchange_strong(deferred, deferred_again))
           break;
@@ -69,7 +69,7 @@ private:
       BOOST_ASSERT(!page.is_empty() && !page.is_full());
       BOOST_ASSERT(page.is_in_heap());
 
-      page.move_outof_tcache();
+      page.move_outof_heap();
       m_partial_pages.pop_front();
       pages.push_front(page);
       num_objs += page.num_free();
@@ -96,18 +96,19 @@ private:
     object *deferred_again = nullptr;
 
     for (auto obj = deferred; obj;) {
-      auto next = obj->next.load(std::memory_order_relaxed);
+      auto next = obj->get_next();
       auto page = cxt.get_page(obj);
 
       if (free(obj, cxt)) {
         if (page->is_empty()) {
           BOOST_ASSERT(page->page_list_hook::is_linked());
           page->page_list_hook::unlink();
-          page->move_outof_tcache();
+          page->move_outof_heap();
           purgable_pages.push_back(*page);
+          asan_poison_memory_region(&page, sizeof(page));
         }
       } else {
-        obj->next.store(deferred_again, std::memory_order_relaxed);
+        obj->set_next(deferred_again);
         deferred_again = obj;
       }
 
@@ -127,7 +128,10 @@ private:
 
     auto was_full = page->is_full();
 
+    obj->unpoison();
     page->free(obj);
+    obj->poison();
+
     if (was_full && !page->is_empty()) {
       BOOST_ASSERT(page->page_list_hook::is_linked());
       page->page_list_hook::unlink();

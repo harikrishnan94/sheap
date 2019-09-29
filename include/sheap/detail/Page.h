@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SizeClass.h"
+#include "utils.h"
 
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/slist.hpp>
@@ -19,6 +20,7 @@ public:
   Page(Page &&) = delete;
 
   void init(const SizeClass &szc, void *page_base, Heap *heap) noexcept {
+    asan_unpoison_memory_region(this, sizeof(*this));
     new (this) Page{szc, page_base, heap};
   }
 
@@ -40,7 +42,7 @@ public:
     BOOST_ASSERT(this != Page::get_null_page());
     BOOST_ASSERT(m_num_free > 0);
     m_num_free--;
-    return m_freelist.malloc();
+    return alloc(m_freelist);
   }
   void free(void *obj) noexcept {
     BOOST_ASSERT(m_num_free != m_szc->num_objs);
@@ -59,14 +61,25 @@ public:
   }
   [[nodiscard]] bool is_in_heap() const noexcept { return m_is_in_heap; }
   void move_into_heap() noexcept { m_is_in_heap = true; }
-  void move_outof_tcache() noexcept { m_is_in_heap = false; }
+  void move_outof_heap() noexcept { m_is_in_heap = false; }
 
 private:
   Page() = default;
   Page(const SizeClass &szc, void *page_base, Heap *heap) noexcept
       : m_szc(&szc), m_num_free(szc.num_objs), m_heap(heap) {
     BOOST_ASSERT(m_freelist.empty());
+    asan_unpoison_memory_region(page_base, szc.page_size);
     m_freelist.add_block(page_base, szc.page_size, szc.objsize);
+    asan_poison_memory_region(page_base, szc.page_size);
+  }
+
+  static inline void *alloc(boost::simple_segregated_storage<int> &freelist) {
+    // Moasam...
+    void *first = *reinterpret_cast<void **>(&freelist);
+    asan_unpoison_memory_region(first, sizeof(void *));
+    auto ret = freelist.malloc();
+    asan_poison_memory_region(first, sizeof(void *));
+    return ret;
   }
 
   boost::simple_segregated_storage<int> m_freelist = {};

@@ -24,9 +24,10 @@ struct Sheap::impl {
 };
 
 template <typename T>
-static T *align(std::size_t count, void *&mem, std::size_t &space) {
+static T *alloc_internal(std::size_t count, void *&mem, std::size_t &space) {
   if (std::align(alignof(T), sizeof(T) * count, mem, space)) {
     auto res = static_cast<T *>(mem);
+    asan_unpoison_memory_region(res, sizeof(T) * count);
     mem = static_cast<void *>((static_cast<char *>(mem) + sizeof(T) * count));
     space -= sizeof(T) * count;
     return res;
@@ -37,10 +38,10 @@ static T *align(std::size_t count, void *&mem, std::size_t &space) {
 
 static inline ThreadCache **alloc_tcache(void *&mem, std::size_t &size,
                                          int max_threads) {
-  auto tcache = align<ThreadCache *>(max_threads, mem, size);
+  auto tcache = alloc_internal<ThreadCache *>(max_threads, mem, size);
 
   for (int i = 0; i < max_threads; i++) {
-    tcache[i] = align<ThreadCache>(NUM_BINS, mem, size);
+    tcache[i] = alloc_internal<ThreadCache>(NUM_BINS, mem, size);
 
     for (int j = 0; j < NUM_BINS; j++)
       detail::construct(&tcache[i][j]);
@@ -53,18 +54,19 @@ Sheap::Sheap(void *mem, std::size_t size, const config &c)
     : m_imp(create(mem, size, c)) {}
 
 Sheap::impl *Sheap::create(void *mem, std::size_t size, const config &c) {
+  asan_poison_memory_region(mem, size);
   BOOST_ASSERT(c.max_threads > 0);
 
   auto num_heaps = detail::next_pow_2(c.num_heaps);
   auto max_threads = detail::next_pow_2(c.max_threads);
 
-  auto imp = align<impl>(1, mem, size);
-  auto cxt = align<Context>(1, mem, size);
-  auto page_alloc = align<PageAllocator>(1, mem, size);
-  auto heaps = align<Heap>(num_heaps, mem, size);
+  auto imp = alloc_internal<impl>(1, mem, size);
+  auto cxt = alloc_internal<Context>(1, mem, size);
+  auto page_alloc = alloc_internal<PageAllocator>(1, mem, size);
+  auto heaps = alloc_internal<Heap>(num_heaps, mem, size);
   auto tcache = alloc_tcache(mem, size, max_threads);
   auto num_pages = size / (c.page_size + sizeof(Page)) - 1;
-  auto pages = align<Page>(num_pages, mem, size);
+  auto pages = alloc_internal<Page>(num_pages, mem, size);
   auto pages_base = std::align(c.page_size, c.page_size * num_pages, mem, size);
 
   detail::construct(cxt, pages, num_pages, c.page_size, pages_base);
@@ -85,17 +87,21 @@ void *Sheap::alloc(int tid, std::size_t size) noexcept {
   auto &heap = m_imp->m_heaps[tid & (m_imp->m_num_heaps - 1)];
   auto &tcache = m_imp->m_tcache[tid & (m_imp->m_max_threads - 1)][binid];
 
-  return tcache.alloc(
-      [&]() { return heap.alloc_pages(binid); },
-      [&](auto &&_1) { return heap.push_full_pages(binid, _1); });
+  auto ret =
+      tcache.alloc([&]() { return heap.alloc_pages(binid); },
+                   [&](auto &&_1) { return heap.push_full_pages(binid, _1); });
+  asan_unpoison_memory_region(ret, size);
+  return ret;
 }
 
 void Sheap::free(void *ptr) noexcept {
   BOOST_ASSERT(ptr != nullptr);
   auto page = m_imp->m_cxt.get_page(ptr);
   auto heap = page->get_heap();
-  auto binid = page->get_size_class().binid;
+  auto szc = page->get_size_class();
+  auto binid = szc.binid;
 
+  asan_poison_memory_region(ptr, szc.objsize);
   heap->deferred_free(binid, ptr);
 }
 

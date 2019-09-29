@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <sanitizer/asan_interface.h>
 #include <type_traits>
 
 namespace sheap::detail {
@@ -36,6 +37,22 @@ template <
     typename = typename std::enable_if_t<std::is_constructible_v<T, Args...>>>
 T *construct(T *ptr, Args... args) noexcept {
   return new (reinterpret_cast<char *>(ptr)) T{std::forward<Args>(args)...};
+}
+
+#if __has_feature(address_sanitizer) || defined(__SANITIZE_ADDRESS__)
+#define ASAN_ENABLED
+#endif
+
+inline void asan_poison_memory_region(void const volatile *addr, size_t size) {
+#ifdef ASAN_ENABLED
+  if (addr)
+    ASAN_POISON_MEMORY_REGION(addr, size);
+#endif
+}
+
+inline void asan_unpoison_memory_region(void const volatile *addr,
+                                        size_t size) {
+  ASAN_UNPOISON_MEMORY_REGION(addr, size);
 }
 
 } // namespace sheap::detail
