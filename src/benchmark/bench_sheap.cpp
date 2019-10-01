@@ -7,10 +7,17 @@
 #include <random>
 #include <vector>
 
+static const auto MAX_THREADS = std::thread::hardware_concurrency();
+
 class MallocAllocator {
 public:
   void *alloc(int, std::size_t size) { return std::malloc(size); }
   void free(void *ptr) { std::free(ptr); }
+
+  static MallocAllocator &instance() {
+    static auto Instance = std::make_unique<MallocAllocator>();
+    return *Instance;
+  }
 };
 
 class SheapAllocator {
@@ -30,15 +37,14 @@ public:
 
 private:
   static constexpr auto MAX_MEMORY = 300'000'000;
-  static inline auto config = sheap::config{
-      static_cast<int>(std::thread::hardware_concurrency()), 64 * 1024, 1};
+  static inline auto config =
+      sheap::config{static_cast<int>(MAX_THREADS), 64 * 1024, 1};
 
   void *mem;
   sheap::Sheap sheap;
 };
 
-template <typename Allocator>
-static void BM_AllocFree(benchmark::State &s, Allocator &&a) {
+template <typename Allocator> static void BM_AllocFree(benchmark::State &s) {
   constexpr auto BATCH_SIZE = 100'000;
   constexpr auto MIN_ALLOCSIZE = 32;
   constexpr auto MAX_ALLOCSIZE = 4096;
@@ -49,6 +55,9 @@ static void BM_AllocFree(benchmark::State &s, Allocator &&a) {
   std::vector<std::int64_t> sizes;
   std::vector<void *> to_free;
   std::size_t block_size = s.range();
+
+  auto &a = Allocator::instance();
+  auto tid = s.thread_index;
 
   auto prep_batch = [&]() {
     s.PauseTiming();
@@ -65,7 +74,6 @@ static void BM_AllocFree(benchmark::State &s, Allocator &&a) {
     to_free.clear();
   };
 
-  auto tid = s.thread_index;
   while (s.KeepRunningBatch(BATCH_SIZE)) {
     prep_batch();
     for (auto i = 0; i < BATCH_SIZE; i++) {
@@ -86,8 +94,8 @@ static void BM_AllocFree(benchmark::State &s, Allocator &&a) {
   free_all();
 }
 
-BENCHMARK_CAPTURE(BM_AllocFree, SheapAlloc, SheapAllocator::instance())
-    ->ThreadRange(1, std::thread::hardware_concurrency())
+BENCHMARK_TEMPLATE(BM_AllocFree, SheapAllocator)
+    ->ThreadRange(1, MAX_THREADS)
     ->UseRealTime()
     ->Arg(100)
     ->Arg(500)
@@ -95,8 +103,8 @@ BENCHMARK_CAPTURE(BM_AllocFree, SheapAlloc, SheapAllocator::instance())
     ->Arg(2000)
     ->Arg(5000)
     ->Arg(10000);
-BENCHMARK_CAPTURE(BM_AllocFree, Malloc, MallocAllocator{})
-    ->ThreadRange(1, std::thread::hardware_concurrency())
+BENCHMARK_TEMPLATE(BM_AllocFree, MallocAllocator)
+    ->ThreadRange(1, MAX_THREADS)
     ->UseRealTime()
     ->Arg(100)
     ->Arg(500)
