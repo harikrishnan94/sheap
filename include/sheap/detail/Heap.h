@@ -12,7 +12,7 @@
 namespace sheap::detail {
 constexpr auto MIN_FREE_OBJS = 50;
 
-class UsedPageStorage {
+class UsedPageStore {
 public:
   std::pair<FreePageList, FreePageList> alloc(Context &cxt) noexcept {
     auto purgable_pages = get_purgable_pages(cxt);
@@ -44,16 +44,16 @@ public:
 
   FreePageList get_purgable_pages(Context &cxt) {
     std::lock_guard lock{m_mtx};
-    auto *deferred = get_deferred();
-    auto [purgable_pages, def_agn] = apply_deferred_free(deferred, cxt);
+    auto deferred = get_deferred();
+    auto [purgable_pages, deferred_again] = apply_deferred_free(deferred, cxt);
 
-    if (def_agn.head) {
-      BOOST_ASSERT(def_agn.tail != nullptr);
+    if (deferred_again.head) {
+      BOOST_ASSERT(deferred_again.tail != nullptr);
       while (true) {
         auto old = m_deferred_free.load(std::memory_order_acquire);
-        def_agn.tail->set_next(old);
+        deferred_again.tail->set_next(old);
 
-        if (m_deferred_free.compare_exchange_strong(old, def_agn.head))
+        if (m_deferred_free.compare_exchange_strong(old, deferred_again.head))
           break;
         BOOST_INTERPROCESS_SMT_PAUSE;
       }
@@ -63,7 +63,7 @@ public:
   }
 
 private:
-  struct deferred_again {
+  struct slist {
     object *head = nullptr;
     object *tail = nullptr;
 
@@ -95,7 +95,7 @@ private:
 
   object *get_deferred() {
     while (true) {
-      auto *freed = m_deferred_free.load(std::memory_order_acquire);
+      auto freed = m_deferred_free.load(std::memory_order_acquire);
 
       if (freed == nullptr)
         return nullptr;
@@ -107,9 +107,9 @@ private:
   }
 
   auto apply_deferred_free(object *deferred, Context &cxt)
-      -> std::pair<FreePageList, deferred_again> {
+      -> std::pair<FreePageList, slist> {
     FreePageList purgable_pages;
-    deferred_again def_agn;
+    slist deferred_again;
 
     for (auto obj = deferred; obj;) {
       auto next = obj->get_next();
@@ -124,13 +124,13 @@ private:
           asan_poison_memory_region(&page, sizeof(page));
         }
       } else {
-        def_agn.push_back(obj);
+        deferred_again.push_back(obj);
       }
 
       obj = next;
     }
 
-    return {std::move(purgable_pages), def_agn};
+    return {std::move(purgable_pages), deferred_again};
   }
 
   bool free(object *obj, Context &cxt) {
@@ -176,26 +176,26 @@ public:
   }
 
   void push_full_pages(int bin_id, FreePageList &pages) noexcept {
-    m_ups[bin_id].push_full_pages(pages);
+    m_used_page_store[bin_id].push_full_pages(pages);
   }
 
   void deferred_free(int bin_id, void *obj) noexcept {
-    m_ups[bin_id].deferred_free(static_cast<object *>(obj));
+    m_used_page_store[bin_id].deferred_free(static_cast<object *>(obj));
   }
 
-  void collect_garbage(bool flush_cache) noexcept {
-    for (auto &ps : m_ups) {
+  void collect_garbage(bool flushcache) noexcept {
+    for (auto &ps : m_used_page_store) {
       auto pages = ps.get_purgable_pages(m_cxt);
       purge_pages(pages);
     }
 
-    if (flush_cache)
-      clear_cache();
+    if (flushcache)
+      flush_cache();
   }
 
 private:
   FreePageList alloc_partial_pages(int bin_id) {
-    auto [pages, purgable_pages] = m_ups[bin_id].alloc(m_cxt);
+    auto [pages, purgable_pages] = m_used_page_store[bin_id].alloc(m_cxt);
 
     purge_pages(purgable_pages);
     return std::move(pages);
@@ -254,23 +254,17 @@ private:
     m_page_alloc.free(pages);
   }
 
-  void clear_cache() {
+  void flush_cache() {
     FreePageList pages;
     std::lock_guard lock{m_cache_mtx};
 
-    while (!m_free_page_cache.empty()) {
-      auto &page = m_free_page_cache.front();
-      BOOST_ASSERT(page.is_empty());
-      BOOST_ASSERT(!page.is_in_heap());
-      m_free_page_cache.pop_front();
-      pages.push_front(page);
-    }
-
+    pages.assign(m_free_page_cache.begin(), m_free_page_cache.end());
+    m_free_page_cache.clear();
     m_page_alloc.free(pages);
   }
 
   Context &m_cxt;
-  std::array<UsedPageStorage, NUM_BINS> m_ups;
+  std::array<UsedPageStore, NUM_BINS> m_used_page_store;
   PageAllocator &m_page_alloc;
 
   FreePageList m_free_page_cache = {};

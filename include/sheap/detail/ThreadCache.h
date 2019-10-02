@@ -9,10 +9,10 @@ public:
 
   template <typename PageAlloc, typename PageFree>
   void *alloc(PageAlloc &&page_alloc, PageFree &&page_free) noexcept {
-    if (auto *mem = alloc_fast())
+    if (auto mem = alloc_fast())
       return mem;
 
-    if (auto *mem = alloc_slow())
+    if (auto mem = alloc_slow())
       return mem;
 
     return alloc_very_slow(page_alloc, page_free);

@@ -107,7 +107,7 @@ void Sheap::free(void *ptr) noexcept {
 
 void Sheap::collect_garbage(int tid, bool flush_cache) noexcept {
   if (tid < 0) {
-    for (auto *heap = m_imp->m_heaps, *end = heap + m_imp->m_num_heaps;
+    for (auto heap = m_imp->m_heaps, end = heap + m_imp->m_num_heaps;
          heap != end; heap++) {
       heap->collect_garbage(flush_cache);
     }

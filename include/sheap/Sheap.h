@@ -1,6 +1,7 @@
 #pragma once
 
 #include "detail/utils.h"
+#include "sheap/detail/SizeClass.h"
 
 #include <thread>
 
@@ -46,6 +47,10 @@ public:
     static_assert(alignof(T) <= 16);
     ptr->~T();
     free(static_cast<void *>(ptr));
+  }
+
+  static constexpr std::size_t max_object_size() {
+    return detail::MAX_OBJECT_SIZE;
   }
 
 private:

@@ -8,6 +8,7 @@
 #include <vector>
 
 static const auto MAX_THREADS = std::thread::hardware_concurrency();
+static constexpr auto MAX_LIVE_OBJECTS = 10000;
 
 class MallocAllocator {
 public:
@@ -36,7 +37,8 @@ public:
   }
 
 private:
-  static constexpr auto MAX_MEMORY = 300'000'000;
+  static inline const auto MAX_MEMORY =
+      MAX_LIVE_OBJECTS * MAX_THREADS * sheap::Sheap::max_object_size();
   static inline auto config =
       sheap::config{static_cast<int>(MAX_THREADS), 64 * 1024, 1};
 
@@ -97,18 +99,18 @@ template <typename Allocator> static void BM_AllocFree(benchmark::State &s) {
 BENCHMARK_TEMPLATE(BM_AllocFree, SheapAllocator)
     ->ThreadRange(1, MAX_THREADS)
     ->UseRealTime()
-    ->Arg(100)
-    ->Arg(500)
-    ->Arg(1000)
-    ->Arg(2000)
-    ->Arg(5000)
-    ->Arg(10000);
+    ->Arg(MAX_LIVE_OBJECTS / 100)
+    ->Arg(MAX_LIVE_OBJECTS / 50)
+    ->Arg(MAX_LIVE_OBJECTS / 10)
+    ->Arg(MAX_LIVE_OBJECTS / 5)
+    ->Arg(MAX_LIVE_OBJECTS / 2)
+    ->Arg(MAX_LIVE_OBJECTS);
 BENCHMARK_TEMPLATE(BM_AllocFree, MallocAllocator)
     ->ThreadRange(1, MAX_THREADS)
     ->UseRealTime()
-    ->Arg(100)
-    ->Arg(500)
-    ->Arg(1000)
-    ->Arg(2000)
-    ->Arg(5000)
-    ->Arg(10000);
+    ->Arg(MAX_LIVE_OBJECTS / 100)
+    ->Arg(MAX_LIVE_OBJECTS / 50)
+    ->Arg(MAX_LIVE_OBJECTS / 10)
+    ->Arg(MAX_LIVE_OBJECTS / 5)
+    ->Arg(MAX_LIVE_OBJECTS / 2)
+    ->Arg(MAX_LIVE_OBJECTS);
