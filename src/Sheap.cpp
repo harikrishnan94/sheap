@@ -54,8 +54,9 @@ Sheap::Sheap(void *mem, std::size_t size, const config &c)
     : m_imp(create(mem, size, c)) {}
 
 Sheap::impl *Sheap::create(void *mem, std::size_t size, const config &c) {
-  asan_poison_memory_region(mem, size);
   BOOST_ASSERT(c.max_threads > 0);
+
+  asan_poison_memory_region(mem, size);
 
   auto num_heaps = detail::next_pow_2(c.num_heaps);
   auto max_threads = detail::next_pow_2(c.max_threads);

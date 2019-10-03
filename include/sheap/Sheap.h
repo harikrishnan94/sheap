@@ -4,6 +4,7 @@
 #include "sheap/detail/SizeClass.h"
 
 #include <thread>
+#include <utility>
 
 namespace sheap {
 struct config {
@@ -25,6 +26,9 @@ template <bool Value> struct flush_cache {
 class Sheap {
 public:
   explicit Sheap(void *mem, std::size_t size, const config &c);
+  Sheap(Sheap &&o) : m_imp(std::exchange(o.m_imp, nullptr)) {}
+
+  Sheap(const Sheap &) = delete;
 
   void *alloc(int tid, std::size_t size) noexcept;
   void free(void *ptr) noexcept;

@@ -5,17 +5,36 @@
 #include <cstdlib>
 #include <iterator>
 #include <random>
+#include <utility>
 #include <vector>
 
-static const auto MAX_THREADS = std::thread::hardware_concurrency();
+template <typename T1, typename T2> constexpr auto alloc_range(T1 &&a, T2 &&b) {
+  return std::make_pair(a, b);
+}
+
+static const int MAX_THREADS = std::thread::hardware_concurrency();
 static constexpr auto MAX_LIVE_OBJECTS = 10000;
+
+struct AllocRanges {
+public:
+  static constexpr int get_alloc_sizes_max_range_id() {
+    return alloc_size_ranges.size() - 1;
+  }
+  static constexpr auto get_alloc_range(int rid) {
+    return alloc_size_ranges.at(rid);
+  }
+
+private:
+  static constexpr auto alloc_size_ranges = std::array{
+      alloc_range(80, 512), alloc_range(512, 1024), alloc_range(1024, 4096)};
+};
 
 class MallocAllocator {
 public:
   void *alloc(int, std::size_t size) { return std::malloc(size); }
   void free(void *ptr) { std::free(ptr); }
 
-  static MallocAllocator &instance() {
+  static MallocAllocator &instance(int) {
     static auto Instance = std::make_unique<MallocAllocator>();
     return *Instance;
   }
@@ -23,44 +42,65 @@ public:
 
 class SheapAllocator {
 public:
-  SheapAllocator()
-      : mem(std::malloc(MAX_MEMORY)), sheap(mem, MAX_MEMORY, config) {}
+  SheapAllocator(int num_heaps)
+      : mem(std::malloc(determine_memory())),
+        sheap(mem, determine_memory(),
+              {static_cast<int>(MAX_THREADS), 64 * 1024,
+               static_cast<size_t>(num_heaps)}) {}
 
-  ~SheapAllocator() { std::free(mem); }
+  SheapAllocator(const SheapAllocator &) = delete;
+
+  SheapAllocator(SheapAllocator &&o)
+      : mem(std::exchange(o.mem, nullptr)), sheap(std::move(o.sheap)) {}
+  ~SheapAllocator() {
+    if (mem)
+      std::free(mem);
+  }
 
   void *alloc(int tid, std::size_t size) { return sheap.alloc(tid, size); }
   void free(void *ptr) { sheap.free(ptr); }
 
-  static SheapAllocator &instance() {
-    static auto Instance = std::make_unique<SheapAllocator>();
-    return *Instance;
+  static SheapAllocator &instance(int num_heaps) {
+    static auto sheap_allocators = []() {
+      std::vector<SheapAllocator> sheaps;
+
+      for (auto num_heaps = 0; num_heaps < MAX_THREADS; num_heaps++) {
+        sheaps.emplace_back(num_heaps);
+      }
+
+      sheaps.shrink_to_fit();
+      return sheaps;
+    }();
+
+    return sheap_allocators[num_heaps];
   }
 
 private:
-  static inline const auto MAX_MEMORY =
-      MAX_LIVE_OBJECTS * MAX_THREADS * sheap::Sheap::max_object_size();
-  static inline auto config =
-      sheap::config{static_cast<int>(MAX_THREADS), 64 * 1024, 1};
-
+  static std::size_t determine_memory() {
+    return (MAX_LIVE_OBJECTS + MAX_LIVE_OBJECTS / 10) * MAX_THREADS *
+           sheap::Sheap::max_object_size();
+  }
   void *mem;
   sheap::Sheap sheap;
 };
 
 template <typename Allocator> static void BM_AllocFree(benchmark::State &s) {
-  constexpr auto BATCH_SIZE = 100'000;
-  constexpr auto MIN_ALLOCSIZE = 32;
-  constexpr auto MAX_ALLOCSIZE = 4096;
+  auto alloc_range = s.range(0);
+  auto min_allocsize = AllocRanges::get_alloc_range(alloc_range).first;
+  auto max_allocsize = AllocRanges::get_alloc_range(alloc_range).second;
+  auto block_size = s.range(1);
+  auto num_heaps = s.range(2);
 
   std::mt19937 gen{std::random_device{}()};
-  std::uniform_int_distribution<std::int64_t> dist{MIN_ALLOCSIZE,
-                                                   MAX_ALLOCSIZE};
-  std::vector<std::int64_t> sizes;
+  std::uniform_int_distribution<std::size_t> dist(min_allocsize, max_allocsize);
+  std::vector<std::size_t> sizes;
   std::vector<void *> to_free;
-  std::size_t block_size = s.range();
+  std::int64_t total_size_alloc = 0;
 
-  auto &a = Allocator::instance();
+  auto &a = Allocator::instance(num_heaps - 1);
   auto tid = s.thread_index;
 
+  constexpr auto BATCH_SIZE = 100'000;
   auto prep_batch = [&]() {
     s.PauseTiming();
     sizes.clear();
@@ -86,9 +126,10 @@ template <typename Allocator> static void BM_AllocFree(benchmark::State &s) {
         break;
       }
 
+      total_size_alloc += sizes[i];
       to_free.push_back(ptr);
 
-      if (to_free.size() == block_size)
+      if (to_free.size() == static_cast<std::size_t>(block_size))
         free_all();
     }
   }
@@ -96,21 +137,32 @@ template <typename Allocator> static void BM_AllocFree(benchmark::State &s) {
   free_all();
 }
 
+static void SheapAllocArgsGen(benchmark::internal::Benchmark *b) {
+  for (auto alloc_range_id = 0;
+       alloc_range_id <= AllocRanges::get_alloc_sizes_max_range_id();
+       alloc_range_id++) {
+    for (auto live_obj_count : {100, 500, 1000, 5000, 10000}) {
+      for (auto num_heaps : {1, 2, 4, 8}) {
+        b->Args({alloc_range_id, live_obj_count, num_heaps});
+      }
+    }
+  }
+}
+
+static void MallocArgsGen(benchmark::internal::Benchmark *b) {
+  for (auto alloc_range_id = 0;
+       alloc_range_id <= AllocRanges::get_alloc_sizes_max_range_id();
+       alloc_range_id++) {
+    for (auto live_obj_count : {100, 500, 1000, 5000, 10000}) {
+      b->Args({alloc_range_id, live_obj_count, 0});
+    }
+  }
+}
+
 BENCHMARK_TEMPLATE(BM_AllocFree, SheapAllocator)
     ->ThreadRange(1, MAX_THREADS)
-    ->UseRealTime()
-    ->Arg(MAX_LIVE_OBJECTS / 100)
-    ->Arg(MAX_LIVE_OBJECTS / 50)
-    ->Arg(MAX_LIVE_OBJECTS / 10)
-    ->Arg(MAX_LIVE_OBJECTS / 5)
-    ->Arg(MAX_LIVE_OBJECTS / 2)
-    ->Arg(MAX_LIVE_OBJECTS);
+    ->Apply(SheapAllocArgsGen);
+
 BENCHMARK_TEMPLATE(BM_AllocFree, MallocAllocator)
     ->ThreadRange(1, MAX_THREADS)
-    ->UseRealTime()
-    ->Arg(MAX_LIVE_OBJECTS / 100)
-    ->Arg(MAX_LIVE_OBJECTS / 50)
-    ->Arg(MAX_LIVE_OBJECTS / 10)
-    ->Arg(MAX_LIVE_OBJECTS / 5)
-    ->Arg(MAX_LIVE_OBJECTS / 2)
-    ->Arg(MAX_LIVE_OBJECTS);
+    ->Apply(MallocArgsGen);
