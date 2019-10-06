@@ -69,7 +69,7 @@ private:
       : m_szc(&szc), m_num_free(szc.num_objs), m_heap(heap) {
     BOOST_ASSERT(m_freelist.empty());
     asan_unpoison_memory_region(page_base, szc.page_size);
-    m_freelist.add_block(page_base, szc.page_size, szc.objsize);
+    m_freelist.add_block(page_base, szc.page_size, szc.bin.size);
     asan_poison_memory_region(page_base, szc.page_size);
   }
 

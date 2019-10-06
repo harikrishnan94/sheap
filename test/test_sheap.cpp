@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <boost/align/is_aligned.hpp>
 #include <cstdlib>
 #include <doctest/doctest.h>
 #include <memory>
@@ -72,6 +73,46 @@ TEST_CASE("SheapBasic") {
         break;
     }
   }}.join();
+  sheap.collect_garbage<sheap::flush_cache<true>>(1);
+}
+
+TEST_CASE("SheapAlignedAlloc") {
+  constexpr auto MAX_MEMORY = 2'000'000;
+  constexpr auto NUM_ALLOC = 1000;
+  constexpr auto INTVAL = 0xDEADBEEF;
+  auto mem = mem_alloc<MAX_MEMORY>();
+  auto config = sheap::config{1};
+  auto sheap = sheap::Sheap{mem.get(), MAX_MEMORY, config};
+  std::vector<int *> ptrs;
+  std::array alignments = {32, 64, 128, 256, 512, 1024, 2048};
+  std::mt19937 gen{std::random_device{}()};
+  std::uniform_int_distribution<> align_dist{0, alignments.size() - 1};
+
+  auto alloc = [&]() {
+    auto alloced = 0;
+    for (auto i = 0; i < NUM_ALLOC; i++) {
+      auto align = alignments[align_dist(gen)];
+      auto ptr = static_cast<int *>(sheap.aligned_alloc(0, sizeof(int), align));
+
+      alloced += align + 4;
+      REQUIRE(ptr != nullptr);
+      REQUIRE(boost::alignment::is_aligned(ptr, align));
+      *ptr = INTVAL;
+      ptrs.push_back(ptr);
+    }
+  };
+
+  auto free = [&]() {
+    for (auto ptr : ptrs) {
+      sheap.free(ptr);
+    }
+    ptrs.clear();
+  };
+
+  alloc();
+  free();
+  alloc();
+  free();
   sheap.collect_garbage<sheap::flush_cache<true>>(1);
 }
 

@@ -4,15 +4,20 @@
 #include <boost/align/align_down.hpp>
 
 namespace sheap::detail {
+struct Bin {
+  int size;
+  int alignment;
+};
+
 struct SizeClass {
   int binid;
-  int objsize;
+  Bin bin;
   std::size_t page_size;
   std::size_t num_objs;
 
-  constexpr SizeClass(int binid, int objsize, std::size_t page_size)
-      : binid(binid), objsize(objsize), page_size(page_size),
-        num_objs(page_size / objsize) {}
+  constexpr SizeClass(int binid, Bin bin, std::size_t page_size)
+      : binid(binid), bin(bin), page_size(page_size),
+        num_objs(page_size / bin.size) {}
 
   SizeClass() = default;
 };
@@ -42,7 +47,7 @@ static constexpr std::size_t get_num_bins() {
 }
 
 constexpr auto Bins = []() {
-  std::array<int, get_num_bins()> bins{};
+  std::array<Bin, get_num_bins()> bins{};
   auto distance = 16;
   auto alloc_size = 0;
   auto binid = 0;
@@ -56,8 +61,9 @@ constexpr auto Bins = []() {
         MaxAllocSize);
 
     for (auto size = alloc_size + distance; size <= next_alloc_size;
-         size += distance) {
-      bins[binid++] = size;
+         size += distance, binid++) {
+      bins[binid].size = size;
+      bins[binid].alignment = distance;
     }
 
     distance = next_distance;
@@ -72,7 +78,7 @@ constexpr auto BinMap = []() {
   std::array<int, MaxAllocSize + 1> bmap{};
 
   for (int i = 0, binId = 0; i <= MaxAllocSize; i++) {
-    if (Bins[binId] >= i) {
+    if (Bins[binId].size >= i) {
       bmap[i] = binId;
       continue;
     }

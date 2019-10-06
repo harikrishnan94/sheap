@@ -3,6 +3,7 @@
 #include "detail/utils.h"
 #include "sheap/detail/SizeClass.h"
 
+#include <boost/align/align_up.hpp>
 #include <thread>
 #include <utility>
 
@@ -31,6 +32,7 @@ public:
   Sheap(const Sheap &) = delete;
 
   void *alloc(int tid, std::size_t size) noexcept;
+  void *aligned_alloc(int tid, std::size_t size, std::size_t align) noexcept;
   void free(void *ptr) noexcept;
 
   template <typename FlushCache = flush_cache<false>>
@@ -40,15 +42,26 @@ public:
   void collect_garbage_full() noexcept { collect_garbage(-1, true); }
 
   template <typename T, typename... Args> T *construct(int tid, Args... args) {
-    static_assert(alignof(T) <= 16);
-    if (auto mem = alloc(tid, sizeof(T)))
-      return new (mem) T{std::forward<Args>(args)...};
-    else
-      return nullptr;
+    static_assert(sizeof(T) <= max_alloc_size(),
+                  "cannot allocate more than max_alloc_size()");
+
+    constexpr auto binid = detail::BinMap[sizeof(T)];
+    if constexpr (detail::Bins[binid].alignment == alignof(T)) {
+      if (auto mem = alloc(tid, sizeof(T)))
+        return new (mem) T{std::forward<Args>(args)...};
+    } else {
+      static_assert(sizeof(T) + alignof(T) <= max_alloc_size(),
+                    "cannot allocate more than max_alloc_size()");
+
+      if (auto mem = aligned_alloc(tid, sizeof(T), alignof(T)))
+        return new (mem) T{std::forward<Args>(args)...};
+    }
+
+    return nullptr;
   }
 
   template <typename T> void destruct(T *ptr) noexcept {
-    static_assert(alignof(T) <= 16);
+    static_assert(alignof(T) <= max_alloc_size());
     ptr->~T();
     free(static_cast<void *>(ptr));
   }

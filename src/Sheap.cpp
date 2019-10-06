@@ -82,7 +82,7 @@ Sheap::impl *Sheap::create(void *mem, std::size_t size, const config &c) {
 }
 
 void *Sheap::alloc(int tid, std::size_t size) noexcept {
-  BOOST_ASSERT(size <= Bins.back());
+  BOOST_ASSERT(size <= max_alloc_size());
 
   auto binid = BinMap[size];
   auto &heap = m_imp->m_heaps[tid & (m_imp->m_num_heaps - 1)];
@@ -95,14 +95,27 @@ void *Sheap::alloc(int tid, std::size_t size) noexcept {
   return ret;
 }
 
+void *Sheap::aligned_alloc(int tid, std::size_t size,
+                           std::size_t align) noexcept {
+  void *unaligned = alloc(tid, size + align);
+  void *aligned = boost::alignment::align_up(unaligned, align);
+  auto in_acccessible = reinterpret_cast<std::size_t>(aligned) -
+                        reinterpret_cast<std::size_t>(unaligned);
+
+  asan_poison_memory_region(unaligned, in_acccessible);
+
+  return aligned;
+}
+
 void Sheap::free(void *ptr) noexcept {
   BOOST_ASSERT(ptr != nullptr);
   auto page = m_imp->m_cxt.get_page(ptr);
   auto heap = page->get_heap();
   auto szc = page->get_size_class();
   auto binid = szc.binid;
+  ptr = boost::alignment::align_down(ptr, szc.bin.alignment);
 
-  asan_poison_memory_region(ptr, szc.objsize);
+  asan_poison_memory_region(ptr, szc.bin.size);
   heap->deferred_free(binid, ptr);
 }
 
