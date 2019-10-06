@@ -88,14 +88,14 @@ TEST_CASE("SheapRandom") {
   auto test = [&](int tid, auto ptrs) {
     std::mt19937 gen{std::random_device{}()};
     std::uniform_int_distribution<std::size_t> size_dist{32, 4096};
-    std::uniform_int_distribution<> op_dist{1, 100};
+    std::uniform_int_distribution<> op_dist{1, 10000};
 
     auto next_op = [&]() {
       auto val = op_dist(gen);
 
-      if (val < 50) {
+      if (val < 5000) {
         return ALLOC;
-      } else if (val < 99) {
+      } else if (val < 9999) {
         return FREE;
       } else {
         return GC;
