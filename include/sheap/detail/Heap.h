@@ -258,8 +258,14 @@ private:
     FreePageList pages;
     std::lock_guard lock{m_cache_mtx};
 
-    pages.assign(m_free_page_cache.begin(), m_free_page_cache.end());
-    m_free_page_cache.clear();
+    while (!m_free_page_cache.empty()) {
+      auto &page = m_free_page_cache.front();
+      BOOST_ASSERT(page.is_empty());
+      BOOST_ASSERT(!page.is_in_heap());
+      m_free_page_cache.pop_front();
+      pages.push_front(page);
+    }
+
     m_page_alloc.free(pages);
   }
 
