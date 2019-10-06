@@ -78,7 +78,7 @@ public:
 private:
   static std::size_t determine_memory() {
     return (MAX_LIVE_OBJECTS + MAX_LIVE_OBJECTS / 10) * MAX_THREADS *
-           sheap::Sheap::max_object_size();
+           sheap::Sheap::max_alloc_size();
   }
   void *mem;
   sheap::Sheap sheap;

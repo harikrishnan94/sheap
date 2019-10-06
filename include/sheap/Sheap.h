@@ -53,9 +53,7 @@ public:
     free(static_cast<void *>(ptr));
   }
 
-  static constexpr std::size_t max_object_size() {
-    return detail::MAX_OBJECT_SIZE;
-  }
+  static constexpr std::size_t max_alloc_size() { return detail::MaxAllocSize; }
 
 private:
   struct impl;

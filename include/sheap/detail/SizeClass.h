@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <boost/align/align_down.hpp>
 
 namespace sheap::detail {
 struct SizeClass {
@@ -16,20 +17,61 @@ struct SizeClass {
   SizeClass() = default;
 };
 
-constexpr std::array Bins = {
-    32,   64,   80,   96,   112,  144,  160,  176,  192,  208,  224,
-    240,  256,  272,  288,  304,  320,  336,  352,  368,  384,  400,
-    416,  432,  448,  464,  480,  512,  544,  576,  608,  640,  672,
-    704,  752,  784,  832,  880,  912,  960,  1024, 1088, 1168, 1232,
-    1312, 1408, 1504, 1600, 1696, 1808, 1920, 2048, 2176, 2320, 2464,
-    2608, 2752, 2896, 3072, 3264, 3472, 3696, 3888, 4096};
+constexpr auto MinAllocSize = 16;
+constexpr auto MaxAllocSize = 4096;
+constexpr auto InternalFragmentationLimit = 0.05;
+
+static constexpr std::size_t get_num_bins() {
+  auto num_bins = 0;
+  auto distance = 16;
+  auto alloc_size = 0;
+  int frag_mul = 1 / InternalFragmentationLimit;
+
+  while (alloc_size < MaxAllocSize) {
+    auto next_distance = distance * 2;
+    auto next_alloc_size = std::min<int>(
+        boost::alignment::align_down(
+            alloc_size + frag_mul * next_distance - distance, next_distance),
+        MaxAllocSize);
+    num_bins += (next_alloc_size - alloc_size) / distance;
+    distance = next_distance;
+    alloc_size = next_alloc_size;
+  }
+
+  return num_bins;
+}
+
+constexpr auto Bins = []() {
+  std::array<int, get_num_bins()> bins{};
+  auto distance = 16;
+  auto alloc_size = 0;
+  auto binid = 0;
+  int frag_mul = 1 / InternalFragmentationLimit;
+
+  while (alloc_size < MaxAllocSize) {
+    auto next_distance = distance * 2;
+    auto next_alloc_size = std::min<int>(
+        boost::alignment::align_down(
+            alloc_size + frag_mul * next_distance - distance, next_distance),
+        MaxAllocSize);
+
+    for (auto size = alloc_size + distance; size <= next_alloc_size;
+         size += distance) {
+      bins[binid++] = size;
+    }
+
+    distance = next_distance;
+    alloc_size = next_alloc_size;
+  }
+
+  return bins;
+}();
 
 constexpr int NUM_BINS = Bins.size();
-constexpr auto MAX_OBJECT_SIZE = Bins.back();
-const auto BinMap = []() {
-  std::array<int, MAX_OBJECT_SIZE + 1> bmap;
+constexpr auto BinMap = []() {
+  std::array<int, MaxAllocSize + 1> bmap{};
 
-  for (int i = 0, binId = 0; i <= MAX_OBJECT_SIZE; i++) {
+  for (int i = 0, binId = 0; i <= MaxAllocSize; i++) {
     if (Bins[binId] >= i) {
       bmap[i] = binId;
       continue;
@@ -40,5 +82,4 @@ const auto BinMap = []() {
 
   return bmap;
 }();
-
 } // namespace sheap::detail
