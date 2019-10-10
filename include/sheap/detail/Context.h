@@ -64,6 +64,18 @@ public:
     return m_pages + pageno;
   }
 
+  inline auto get_alloc_info(void *ptr) const noexcept
+      -> std::tuple<void *, Page *, const SizeClass &> {
+    auto page = get_page(ptr);
+    auto &szc = page->get_size_class();
+    auto page_start = reinterpret_cast<std::byte *>(get_page_ptr(page));
+    auto ptr_ind = reinterpret_cast<std::byte *>(ptr) - page_start;
+    ptr = static_cast<void *>(page_start +
+                              (ptr_ind / szc.bin.size) * szc.bin.size);
+
+    return {ptr, page, szc};
+  }
+
   [[nodiscard]] const SizeClass &get_size_class(int binid) const noexcept {
     return m_sizeclasses[binid];
   }

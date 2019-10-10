@@ -109,14 +109,12 @@ void *Sheap::aligned_alloc(int tid, std::size_t size,
 
 void Sheap::free(void *ptr) noexcept {
   BOOST_ASSERT(ptr != nullptr);
-  auto page = m_imp->m_cxt.get_page(ptr);
+  auto [obj, page, szc] = m_imp->m_cxt.get_alloc_info(ptr);
   auto heap = page->get_heap();
-  auto szc = page->get_size_class();
   auto binid = szc.binid;
-  ptr = boost::alignment::align_down(ptr, szc.bin.alignment);
 
-  asan_poison_memory_region(ptr, szc.bin.size);
-  heap->deferred_free(binid, ptr);
+  asan_poison_memory_region(obj, szc.bin.size);
+  heap->deferred_free(binid, obj);
 }
 
 void Sheap::collect_garbage(int tid, bool flush_cache) noexcept {
