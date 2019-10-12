@@ -50,6 +50,9 @@ public:
     m_num_free++;
   }
 
+  void set_has_aligned() noexcept { m_has_aligned = true; }
+  [[nodiscard]] bool has_aligned() const noexcept { return m_has_aligned; }
+
   [[nodiscard]] bool is_empty() const noexcept {
     return m_num_free == m_szc->num_objs;
   }
@@ -87,6 +90,7 @@ private:
   std::size_t m_num_free = 0;
   Heap *const m_heap = nullptr;
   bool m_is_in_heap = false;
+  bool m_has_aligned = false;
 };
 
 using FreePageList =

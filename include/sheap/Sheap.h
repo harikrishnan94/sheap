@@ -71,6 +71,8 @@ public:
 private:
   struct impl;
 
+  template <bool IsAlignedAlloc>
+  void *alloc(int tid, std::size_t size) noexcept;
   static impl *create(void *mem, std::size_t size, const config &c);
   void collect_garbage(int tid, bool flush_cache) noexcept;
 

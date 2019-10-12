@@ -39,6 +39,14 @@ T *construct(T *ptr, Args... args) noexcept {
   return new (reinterpret_cast<char *>(ptr)) T{std::forward<Args>(args)...};
 }
 
+template <typename Ptr> std::uintptr_t to_int(Ptr p) noexcept {
+  return reinterpret_cast<std::size_t>(p);
+}
+
+template <typename Ptr = void *> Ptr to_ptr(std::uintptr_t p) noexcept {
+  return reinterpret_cast<Ptr>(p);
+}
+
 #if __has_feature(address_sanitizer) || defined(__SANITIZE_ADDRESS__)
 #define ASAN_ENABLED
 #endif

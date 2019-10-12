@@ -68,10 +68,12 @@ public:
       -> std::tuple<void *, Page *, const SizeClass &> {
     auto page = get_page(ptr);
     auto &szc = page->get_size_class();
-    auto page_start = reinterpret_cast<std::byte *>(get_page_ptr(page));
-    auto ptr_ind = reinterpret_cast<std::byte *>(ptr) - page_start;
-    ptr = static_cast<void *>(page_start +
-                              (ptr_ind / szc.bin.size) * szc.bin.size);
+
+    if (page->has_aligned()) {
+      auto page_start = to_int(get_page_ptr(page));
+      auto diff = to_int(ptr) - page_start;
+      ptr = to_ptr(to_int(ptr) - diff % szc.bin.size);
+    }
 
     return {ptr, page, szc};
   }
@@ -97,8 +99,8 @@ private:
   }
 
   template <typename Ptr> inline std::size_t get_pageno(Ptr obj) const {
-    auto page = reinterpret_cast<std::uintptr_t>(obj) & ~(m_page_size - 1);
-    auto page_base = reinterpret_cast<std::uintptr_t>(m_base);
+    auto page = to_int(obj) & ~(m_page_size - 1);
+    auto page_base = to_int(m_base);
     return (page - page_base) >> m_log_page_size;
   }
 

@@ -81,6 +81,7 @@ Sheap::impl *Sheap::create(void *mem, std::size_t size, const config &c) {
                            max_threads);
 }
 
+template <bool IsAlignedAlloc>
 void *Sheap::alloc(int tid, std::size_t size) noexcept {
   BOOST_ASSERT(size <= max_alloc_size());
 
@@ -88,23 +89,30 @@ void *Sheap::alloc(int tid, std::size_t size) noexcept {
   auto &heap = m_imp->m_heaps[tid & (m_imp->m_num_heaps - 1)];
   auto &tcache = m_imp->m_tcache[tid & (m_imp->m_max_threads - 1)][binid];
 
-  auto ret =
-      tcache.alloc([&]() { return heap.alloc_pages(binid); },
-                   [&](auto &&_1) { return heap.push_full_pages(binid, _1); });
+  auto ret = tcache.alloc<IsAlignedAlloc>(
+      [&]() { return heap.alloc_pages(binid); },
+      [&](auto &&_1) { return heap.push_full_pages(binid, _1); });
   asan_unpoison_memory_region(ret, size);
   return ret;
 }
 
+void *Sheap::alloc(int tid, std::size_t size) noexcept {
+  return alloc<false>(tid, size);
+}
+
 void *Sheap::aligned_alloc(int tid, std::size_t size,
                            std::size_t align) noexcept {
-  void *unaligned = alloc(tid, size + align);
-  void *aligned = boost::alignment::align_up(unaligned, align);
-  auto in_acccessible = reinterpret_cast<std::size_t>(aligned) -
-                        reinterpret_cast<std::size_t>(unaligned);
+  auto binid = detail::BinMap[size];
+  if (static_cast<std::size_t>(detail::Bins[binid].alignment) >= align) {
+    return alloc<false>(tid, size);
+  } else {
+    auto unaligned = alloc<true>(tid, size + align - 1);
+    auto aligned = boost::alignment::align_up(unaligned, align);
+    auto in_acccessible = to_int(aligned) - to_int(unaligned);
 
-  asan_poison_memory_region(unaligned, in_acccessible);
-
-  return aligned;
+    asan_poison_memory_region(unaligned, in_acccessible);
+    return aligned;
+  }
 }
 
 void Sheap::free(void *ptr) noexcept {
