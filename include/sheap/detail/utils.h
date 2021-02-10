@@ -3,8 +3,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <new>
-#include <sanitizer/asan_interface.h>
 #include <type_traits>
+
+#if __has_include(<sanitizer/asan_interface.h>)
+#include <sanitizer/asan_interface.h>
+#if __has_feature(address_sanitizer) || defined(__SANITIZE_ADDRESS__)
+#define ASAN_ENABLED
+#endif
+#endif
 
 namespace sheap::detail {
 static constexpr int log2(std::size_t n) {
@@ -47,10 +53,6 @@ template <typename Ptr = void *> Ptr to_ptr(std::uintptr_t p) noexcept {
   return reinterpret_cast<Ptr>(p);
 }
 
-#if __has_feature(address_sanitizer) || defined(__SANITIZE_ADDRESS__)
-#define ASAN_ENABLED
-#endif
-
 inline void asan_poison_memory_region(void const volatile *addr, size_t size) {
 #ifdef ASAN_ENABLED
   if (addr)
@@ -60,7 +62,9 @@ inline void asan_poison_memory_region(void const volatile *addr, size_t size) {
 
 inline void asan_unpoison_memory_region(void const volatile *addr,
                                         size_t size) {
+#ifdef ASAN_ENABLED
   ASAN_UNPOISON_MEMORY_REGION(addr, size);
+#endif
 }
 
 } // namespace sheap::detail

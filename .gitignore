@@ -44,5 +44,6 @@ CMakeSettings.json
 
 # Build directories
 build*
-.clangd/*
+.clangd
 .ccls
+.cache

@@ -19,10 +19,9 @@ set(PROJECT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 set(${CMAKE_PROJECT_NAME}_VERSION_MAJOR 0)
 set(${CMAKE_PROJECT_NAME}_VERSION_MINOR 0)
 set(${CMAKE_PROJECT_NAME}_VERSION_PATCH 1)
-set(
-    PROJECT_VERSION
+set(PROJECT_VERSION
     "${${CMAKE_PROJECT_NAME}_VERSION_MAJOR}.${${CMAKE_PROJECT_NAME}_VERSION_MINOR}.${${CMAKE_PROJECT_NAME}_VERSION_PATCH}"
-    )
+)
 
 set(LIB "${PROJECT_NAME}")
 set(TEST "test_${PROJECT_NAME}")
@@ -42,14 +41,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 message(STATUS "Building ${CMAKE_BUILD_TYPE} version!")
 
 include(AdditionalBuildTypes.cmake)
-include(ProjectFiles.cmake)
-include_directories(AFTER "include")
 
-find_path(VCPKG_INCLUDE_DIR NAMES tsl gsl)
 find_package(Threads)
-include_directories(AFTER ${VCPKG_INCLUDE_DIR})
-
-set(LIBRARY_LINK_TYPE STATIC)
+find_package(Boost REQUIRED COMPONENTS system thread)
 
 if(NOT MSVC)
     add_compile_options("-Wall" "-pedantic")
@@ -64,7 +58,14 @@ endif(BUILD_COVERAGE_ANALYSIS)
 
 set(SRC "${SRC_PATH}/Sheap.cpp")
 add_library(${LIB} ${LIBRARY_LINK_TYPE} ${SRC})
-target_link_libraries(${LIB} PRIVATE ${CMAKE_THREAD_LIBS_INIT})
+target_include_directories(
+    ${LIB}
+    PRIVATE include
+    INTERFACE include)
+target_link_libraries(
+    ${LIB}
+    PRIVATE ${CMAKE_THREAD_LIBS_INIT} Boost::boost
+    INTERFACE Boost::boost)
 
 add_subdirectory(${TEST_DIR})
 add_subdirectory(${BENCH_DIR})

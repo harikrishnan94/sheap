@@ -4,6 +4,7 @@
 #include <array>
 #include <boost/align/is_aligned.hpp>
 #include <cstdlib>
+#include <cstring>
 #include <doctest/doctest.h>
 #include <memory>
 #include <random>
@@ -66,7 +67,7 @@ TEST_CASE("SheapBasic") {
 
   sheap.collect_garbage<sheap::flush_cache<true>>(0);
 
-  std::thread{[&sheap]() {
+  std::thread{[=, &sheap]() {
     // Test deferred_free again
     for (auto i = 0; i < HUGE_ALLOC; i++) {
       if (!sheap.construct<int>(1, INTVAL))
@@ -120,7 +121,7 @@ TEST_CASE("SheapRandom") {
   enum { ALLOC, FREE, GC };
 
   constexpr auto iterations = 100'000;
-  constexpr auto ALLOCATOR_SIZE = 4'000'000'000UL;
+  constexpr auto ALLOCATOR_SIZE = 2'000'000'000UL; // Maximum 2GB in MSVC
   auto mem = mem_alloc<ALLOCATOR_SIZE>();
   constexpr auto NUM_THREADS = 8;
   auto config = sheap::config{NUM_THREADS, 64 * 1024, 1};
